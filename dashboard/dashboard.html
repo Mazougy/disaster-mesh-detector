@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Disaster Mesh Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* Colors: soft pastel fills + a stronger tone of each color for borders and dots */
+:root{
+  --ink:#263040;--muted:#6f7889;--paper:#f1f3f8;--panel:#fff;--line:#dfe3ec;
+  --ok:#cdeedc;--ok-d:#4aa57a;
+  --warn:#fcefbd;--warn-d:#d4a017;
+  --bad:#f9cfd0;--bad-d:#d65a5a;
+  --off:#e4e7ec;--off-d:#98a0ac;
+  --route:#4b63d8;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.45 "Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between;padding:18px clamp(16px,4vw,32px)}
+h1{margin:0;font-size:1.35rem;font-weight:700}
+h1 span{display:block;font-size:.9rem;font-weight:400;color:var(--muted)}
+.tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:99px;background:var(--off);font-size:.9rem}
+.pill.on{background:var(--ok)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--off-d);flex:none;display:inline-block}
+.pill.on .dot,.dot.l0{background:var(--ok-d)}
+.dot.l1{background:var(--warn-d)}
+.dot.l2{background:var(--bad-d)}
+button{font:inherit;font-size:.9rem;padding:7px 16px;border-radius:99px;border:1.5px solid var(--ink);background:transparent;color:var(--ink);cursor:pointer}
+button[aria-pressed=true]{background:var(--ink);color:#fff}
+button:focus-visible{outline:3px solid var(--route);outline-offset:2px}
+main{max-width:1080px;margin:0 auto;padding:0 clamp(16px,4vw,32px) 48px;display:grid;gap:18px}
+.banner{display:none;padding:9px 16px;border-radius:12px;background:var(--warn);font-size:.9rem}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:18px 20px}
+h2{margin:0 0 10px;font-size:1.05rem}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.85rem;color:var(--muted);margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+
+/* Route diagram */
+svg{width:100%;height:auto;display:block}
+.link{fill:none;stroke:#d3d8e2;stroke-width:5;stroke-linecap:round;transition:stroke .3s}
+.link.back{stroke-width:3;stroke-dasharray:3 9}
+.link.hot{stroke:var(--route);stroke-width:7;stroke-dasharray:none}
+.node circle{stroke-width:4;transition:fill .4s,stroke .4s}
+.node text{text-anchor:middle;font-weight:700;font-size:19px;fill:var(--ink)}
+.node.l0 circle{fill:var(--ok);stroke:var(--ok-d)}
+.node.l1 circle{fill:var(--warn);stroke:var(--warn-d)}
+.node.l2 circle{fill:var(--bad);stroke:var(--bad-d)}
+.node.off circle{fill:var(--off);stroke:var(--off-d)}
+.lbl{font-size:13px;fill:var(--muted);text-anchor:middle}
+
+/* Node cards: the thick left edge shows the level */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.card{border-radius:14px;padding:14px 16px 14px 20px;border:1px solid;border-left-width:10px;transition:background .4s,border-color .4s}
+.card.l0{background:var(--ok);border-color:var(--ok-d)}
+.card.l1{background:var(--warn);border-color:var(--warn-d)}
+.card.l2{background:var(--bad);border-color:var(--bad-d)}
+.card.off{background:var(--off);border-color:var(--off-d)}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.name{font-size:1.5rem;font-weight:700}
+.chip{padding:2px 12px;border-radius:99px;background:rgba(255,255,255,.7);font-size:.85rem;font-weight:700}
+.vals{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin:0}
+.vals div{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid rgba(38,48,64,.12);padding-bottom:3px}
+.vals dt{color:var(--muted)}
+.vals dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums}
+.route{margin-top:10px;font-weight:700}
+.seen{font-size:.85rem;color:var(--muted)}
+
+/* Alert log */
+#log{list-style:none;margin:0;padding:0;max-height:320px;overflow-y:auto}
+#log li{display:grid;grid-template-columns:12px 72px 36px 1fr;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+#log li.empty{display:block;color:var(--muted);border:0}
+#log time{color:var(--muted);font-variant-numeric:tabular-nums;font-size:.9rem}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Disaster Area Mesh Detector
+    <span>Live status of every sensor node. Prefix: <b id="prefixTxt"></b></span></h1>
+  <div class="tools">
+    <span class="pill" id="conn"><i class="dot"></i><span id="connText">Disconnected</span></span>
+    <button id="testBtn" aria-pressed="false">Test mode</button>
+  </div>
+</header>
+
+<main>
+  <div class="banner" id="banner">Test mode is on. These values are fake, and live MQTT messages are ignored until you turn it off.</div>
+
+  <section class="panel">
+    <h2>Mesh route</h2>
+    <svg viewBox="0 0 720 195" role="img" aria-label="Chain from N3 to N2 to N1 to the gateway">
+      <!-- backup routes first (drawn behind), then the main chain, then the nodes -->
+      <path class="link back" id="L-N3-N1" d="M90 125 Q270 5 450 125"/>
+      <path class="link back" id="L-N2-GW" d="M270 125 Q450 5 630 125"/>
+      <line class="link" id="L-N3-N2" x1="90" y1="125" x2="270" y2="125"/>
+      <line class="link" id="L-N2-N1" x1="270" y1="125" x2="450" y2="125"/>
+      <line class="link" id="L-N1-GW" x1="450" y1="125" x2="630" y2="125"/>
+      <g class="node off" id="node-N3" transform="translate(90 125)"><circle r="36"/><text y="7">N3</text></g>
+      <g class="node off" id="node-N2" transform="translate(270 125)"><circle r="36"/><text y="7">N2</text></g>
+      <g class="node off" id="node-N1" transform="translate(450 125)"><circle r="36"/><text y="7">N1</text></g>
+      <g class="node off" id="node-GW" transform="translate(630 125)"><circle r="36"/><text y="7">GW</text></g>
+      <text class="lbl" x="90" y="188">sensor</text>
+      <text class="lbl" x="270" y="188">sensor + relay</text>
+      <text class="lbl" x="450" y="188">sensor + relay</text>
+      <text class="lbl" x="630" y="188">gateway</text>
+    </svg>
+    <div class="legend">
+      <span><i class="dot l0"></i>OK</span>
+      <span><i class="dot l1"></i>Warning</span>
+      <span><i class="dot l2"></i>Danger</span>
+      <span><i class="dot"></i>Offline, or no data for 15 s</span>
+      <span>Blue line: route of the latest message</span>
+      <span>Dashed line: backup route</span>
+    </div>
+  </section>
+
+  <section class="cards" id="cards" aria-label="Node status"></section>
+
+  <section class="panel">
+    <h2>Alert log</h2>
+    <ul id="log"></ul>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script>
+// ===== SETTINGS: PREFIX must be exactly the word your team agreed on =====
+const PREFIX = 'dmesh-xyz123';
+// =========================================================================
+
+const NODES = ['N1', 'N2', 'N3'];
+const TIMEOUT = 15000;                       // grey after 15 s without data
+const LABEL = {l0: 'OK', l1: 'Warning', l2: 'Danger', off: 'Offline'};
+const EVENTS = {                             // alert event -> [dot color, text]
+  warning: ['l1', 'Warning'], danger: ['l2', 'Danger'], sos: ['l2', 'SOS: survivor signal'],
+  offline: ['off', 'Went offline'], online: ['l0', 'Back online']
+};
+const state = {};                            // last data per node: {d, rx (time), off}
+const hot = {};                              // when each link was last used, e.g. hot['N3-N2']
+const logs = [];
+let gwOnline = false, testMode = false, client = null, timer = null, seq = 0, fakeOff = {};
+
+const $ = id => document.getElementById(id);
+const lvl = v => Math.min(2, Math.max(0, Number(v) || 0));
+const num = (v, n) => (v === null || v === undefined || !isFinite(v)) ? '–' : Number(v).toFixed(n);
+// escape text so a stranger on the public broker cannot inject HTML
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pathOf = d => (Array.isArray(d.path) && d.path.length ? d.path : [d.id]);
+
+function resetState() { NODES.forEach(id => state[id] = {d: null, rx: 0, off: false}); }
+resetState();
+$('prefixTxt').textContent = PREFIX;
+
+// ---- Build one card per node ----
+const ROWS = [['temp','Temp'],['hum','Humidity'],['gas','Gas'],['shake','Shake'],['sos','SOS'],['hop','Hops']];
+$('cards').innerHTML = NODES.map(id => `
+  <article class="card off" id="card-${id}">
+    <div class="top"><span class="name">${id}</span><span class="chip" data-k="chip">No data</span></div>
+    <dl class="vals">${ROWS.map(r => `<div><dt>${r[1]}</dt><dd data-k="${r[0]}">–</dd></div>`).join('')}</dl>
+    <div class="route" data-k="route">Route: –</div>
+    <div class="seen" data-k="seen">Last seen: never</div>
+  </article>`).join('');
+const put = (id, k, v) => { document.querySelector('#card-' + id + ' [data-k="' + k + '"]').textContent = v; };
+
+// ---- Decide the color of a node: l0 green, l1 yellow, l2 red, off grey ----
+function stateOf(id) {
+  const s = state[id];
+  if (!s.d || s.off || Date.now() - s.rx > TIMEOUT) return 'off';
+  return 'l' + lvl(s.d.level);
+}
+
+// ---- Redraw cards and diagram (also runs every second for "last seen") ----
+function render() {
+  const now = Date.now();
+  NODES.forEach(id => {
+    const s = state[id], d = s.d, st = stateOf(id);
+    $('card-' + id).className = 'card ' + st;
+    put(id, 'chip', d ? LABEL[st] : 'No data');
+    put(id, 'temp', d ? num(d.temp, 1) + ' °C' : '–');
+    put(id, 'hum', d ? num(d.hum, 0) + ' %' : '–');
+    put(id, 'gas', d ? num(d.gas, 0) : '–');
+    put(id, 'shake', d ? num(d.shake, 2) + ' g' : '–');
+    put(id, 'sos', d ? (d.sos ? 'YES' : 'no') : '–');
+    put(id, 'hop', d ? num(d.hop, 0) : '–');
+    put(id, 'route', 'Route: ' + (d ? pathOf(d).concat('GW').join(' > ') : '–'));
+    put(id, 'seen', 'Last seen: ' + (s.rx ? Math.round((now - s.rx) / 1000) + ' s ago' : 'never'));
+    $('node-' + id).setAttribute('class', 'node ' + st);
+  });
+  $('node-GW').setAttribute('class', 'node ' + (gwOnline ? 'l0' : 'off'));
+  // links used by a message in the last 2.5 s light up blue
+  document.querySelectorAll('.link').forEach(el =>
+    el.classList.toggle('hot', now - (hot[el.id.slice(2)] || 0) < 2500));
+}
+
+function renderLog() {
+  $('log').innerHTML = logs.length
+    ? logs.map(e => `<li><i class="dot ${e.cls}"></i><time>${e.t}</time><b>${e.id}</b><span>${e.text}</span></li>`).join('')
+    : '<li class="empty">No alerts yet. They appear here when a node reports a warning, danger, SOS or goes offline.</li>';
+}
+renderLog();
+
+// ---- Handle the 3 kinds of MQTT messages ----
+function handleData(d) {                     // <prefix>/data
+  const s = state[d.id]; if (!s) return;
+  s.d = d; s.rx = Date.now(); s.off = false;
+  const p = pathOf(d).concat('GW');          // e.g. N3,N2,N1,GW -> links N3-N2, N2-N1, N1-GW
+  for (let i = 0; i < p.length - 1; i++) hot[p[i] + '-' + p[i + 1]] = Date.now();
+  render();
+}
+function handleAlert(a) {                    // <prefix>/alerts
+  const s = state[a.id]; if (!s) return;
+  if (a.event === 'offline') s.off = true;
+  if (a.event === 'online') s.off = false;
+  const ev = EVENTS[a.event] || ['off', esc(a.event)];
+  const via = Array.isArray(a.path) && a.path.length ? ' via ' + esc(a.path.join(' > ')) : '';
+  logs.unshift({t: new Date().toLocaleTimeString([], {hour12: false}), id: a.id, cls: ev[0], text: ev[1] + via});
+  if (logs.length > 50) logs.pop();        // keep the newest 50
+  renderLog(); render();
+}
+function handleStatus(id, text) {            // <prefix>/status/<ID>: online or offline (MQTT Last Will)
+  if (id === 'GW') gwOnline = text === 'online';
+  else if (state[id]) state[id].off = text === 'offline';
+  render();
+}
+function onMessage(topic, payload) {
+  if (testMode) return;                      // ignore real data while testing
+  const text = payload.toString();
+  try {
+    if (topic === PREFIX + '/data') handleData(JSON.parse(text));
+    else if (topic === PREFIX + '/alerts') handleAlert(JSON.parse(text));
+    else if (topic.startsWith(PREFIX + '/status/')) handleStatus(topic.split('/').pop(), text);
+  } catch (e) { console.warn('Bad message on', topic, text); }
+}
+
+// ---- Connect to the broker over WebSockets (wss automatically if the page is on https) ----
+const BROKER_URL = location.protocol === 'https:'
+  ? 'wss://broker.hivemq.com:8884/mqtt' : 'ws://broker.hivemq.com:8000/mqtt';
+const TOPICS = [PREFIX + '/data', PREFIX + '/alerts', PREFIX + '/status/+'];
+function setConn(on) {
+  $('conn').classList.toggle('on', on);
+  $('connText').textContent = on ? 'Connected to broker' : 'Disconnected';
+}
+try {
+  client = mqtt.connect(BROKER_URL, {clientId: 'dash-' + Math.random().toString(16).slice(2, 10)});
+  client.on('connect', () => { setConn(true); client.subscribe(TOPICS); });
+  client.on('close', () => setConn(false));
+  client.on('error', () => setConn(false));
+  client.on('message', onMessage);
+} catch (e) { setConn(false); console.warn('MQTT library not loaded (no internet?)', e); }
+
+// ---- Test mode: fake data for N1, N2, N3 every 3 s (random warnings, danger, SOS, offline) ----
+const pick = a => a[Math.floor(Math.random() * a.length)];
+function fakeTick() {
+  if (Math.random() < 0.12) {                // sometimes a node "dies" for about 12 s
+    const id = pick(NODES);
+    if (!fakeOff[id]) { fakeOff[id] = 4; handleAlert({id, event: 'offline'}); }
+  }
+  NODES.forEach(id => {
+    if (fakeOff[id]) { fakeOff[id]--; if (!fakeOff[id]) handleAlert({id, event: 'online'}); return; }
+    const r = Math.random(), sos = Math.random() < 0.04;
+    const lv = r < 0.8 ? 0 : r < 0.93 ? 1 : 2, level = sos ? 2 : lv;
+    // if N2 is dead, N3 uses its backup route straight to N1
+    const path = id === 'N3' ? (fakeOff.N2 ? ['N3', 'N1'] : ['N3', 'N2', 'N1']) : id === 'N2' ? ['N2', 'N1'] : ['N1'];
+    const d = {id, seq: ++seq, temp: 24 + Math.random() * 6 + [0, 18, 34][lv], hum: 50 + Math.random() * 20,
+      gas: 200 + Math.random() * 300 + [0, 1500, 2300][lv], shake: Math.random() * 0.4 + [0, 1, 2][lv],
+      sos, level, hop: path.length - 1, path};
+    handleData(d);
+    if (level) handleAlert({id, event: sos ? 'sos' : lv === 2 ? 'danger' : 'warning', level, hop: d.hop, path});
+  });
+}
+$('testBtn').onclick = () => {
+  testMode = !testMode;
+  $('testBtn').setAttribute('aria-pressed', testMode);
+  $('banner').style.display = testMode ? 'block' : 'none';
+  resetState(); logs.length = 0; fakeOff = {}; renderLog();
+  clearInterval(timer);
+  if (testMode) { gwOnline = true; fakeTick(); timer = setInterval(fakeTick, 3000); }
+  else { gwOnline = false; if (client && client.connected) client.subscribe(TOPICS); } // re-subscribe to get retained status again
+  render();
+};
+
+render();
+setInterval(render, 1000);                   // keeps "last seen" and the 15 s grey rule up to date
+</script>
+</body>
+</html>
